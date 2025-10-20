@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wonder Savings — Sign up</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .page { max-width:700px;margin:40px auto;padding:18px;background:#fff;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.04) }
+    input,button{display:block;width:100%;padding:10px;margin:8px 0;border-radius:8px;border:1px solid #ddd}
+    .muted{color:#666}
+    #signup-feedback{color:#b91c1c;margin-top:6px}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Create Account — Wonder Savings</h1>
+    <div class="muted">Simple signup — data saved only in your browser.</div>
+
+    <form onsubmit="handleSignup(event)">
+      <input id="signup-name" placeholder="Full name (optional)" />
+      <input id="signup-email" placeholder="Email (optional)" />
+      <input id="signup-username" placeholder="Choose username (required)" required />
+      <input id="signup-password" type="password" placeholder="Choose password (required)" required />
+      <input id="signup-starting-balance" type="number" placeholder="Starting balance (KES, optional)" min="0" />
+      <button type="submit">Sign up & continue</button>
+    </form>
+
+    <div id="signup-feedback"></div>
+
+    <p style="margin-top:10px;">Already registered? <a href="index.html">Log in</a></p>
+    <footer style="margin-top:14px;font-size:13px;color:#777">&copy; 2025 Wonder Savings</footer>
+  </div>
+
+  <script>
+    // localStorage keys (same as login)
+    const LS_USERS_KEY = 'ws_users';
+    const LS_CURR_KEY  = 'ws_currentUser';
+
+    function loadUsers(){ return JSON.parse(localStorage.getItem(LS_USERS_KEY) || '[]'); }
+    function saveUsers(u){ localStorage.setItem(LS_USERS_KEY, JSON.stringify(u)); }
+    function setCurrentUser(un){ if(!un) localStorage.removeItem(LS_CURR_KEY); else localStorage.setItem(LS_CURR_KEY, un); }
+
+    // default categories we will use on dashboard
+    const DEFAULT_BREAKDOWN = { zidi:0, emergency:0, investments:0, bills:0, food:0, transport:0, others:0 };
+
+    function createUser({ username, password, name, email, startingBalance }) {
+      username = (username || '').trim().toLowerCase();
+      email = (email || '').trim().toLowerCase();
+      if (!username || !password) return { ok:false, error:'Username and password required.' };
+
+      const users = loadUsers();
+      if (users.find(u=>u.username === username || (u.email && u.email === email && email !== ''))) {
+        return { ok:false, error: 'User with that username/email already exists.' };
+      }
+
+      const user = {
+        username,
+        password,           // demo only: DO NOT do this in real apps
+        name: name || username,
+        email: email || '',
+        balance: Number(startingBalance || 0),
+        breakdown: { ...DEFAULT_BREAKDOWN },
+        transactions: [],   // newest first
+        createdAt: new Date().toISOString()
+      };
+
+      // If starting balance provided, put it into 'others' by default (so charts show it)
+      if (user.balance > 0) user.breakdown.others += Number(user.balance);
+
+      users.push(user);
+      saveUsers(users);
+      return { ok:true, user };
+    }
+
+    function handleSignup(e){
+      e && e.preventDefault();
+      const name = document.getElementById('signup-name').value.trim();
+      const email = document.getElementById('signup-email').value.trim();
+      const username = document.getElementById('signup-username').value.trim().toLowerCase();
+      const password = document.getElementById('signup-password').value;
+      const startingBalance = Number(document.getElementById('signup-starting-balance').value || 0);
+      const fb = document.getElementById('signup-feedback');
+      fb.style.color = '#b91c1c';
+      fb.textContent = '';
+
+      if(!username || !password) { fb.textContent = 'Please choose username and password.'; return; }
+
+      const res = createUser({ username, password, name, email, startingBalance });
+      if(!res.ok) { fb.textContent = res.error; return; }
+
+      // set current and go to dashboard
+      setCurrentUser(username);
+      fb.style.color = '#0f766e';
+      fb.textContent = 'Account created. Redirecting to dashboard...';
+      setTimeout(()=> window.location.href = 'dashboard.html', 600);
+    }
+  </script>
+</body>
+</html>
