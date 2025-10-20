@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wonder Savings — Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    /* Minimal dashboard styles so it looks presentable */
+    body{background:#f4f6f9;font-family:Arial,Helvetica,sans-serif;margin:0;padding:18px}
+    .wrap{max-width:1100px;margin:10px auto}
+    .header{display:flex;justify-content:space-between;align-items:center;background:#2b6cb0;color:#fff;padding:14px;border-radius:10px}
+    .profile{display:flex;gap:12px;align-items:center}
+    .avatar{width:60px;height:60px;border-radius:50%;background:#fff;color:#2b6cb0;display:flex;align-items:center;justify-content:center;font-weight:700}
+    .balance{font-size:20px;font-weight:700}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:16px;margin-top:16px}
+    .card{background:#fff;padding:12px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    .card h3{margin:0 0 8px;color:#2b6cb0}
+    .input-row{display:flex;gap:8px}
+    input,select,button{padding:8px;border-radius:8px;border:1px solid #ddd;font-size:14px}
+    button{background:#2b6cb0;color:#fff;border:none;cursor:pointer}
+    ul#history-list{list-style:none;padding:0;margin:0;max-height:260px;overflow:auto}
+    ul#history-list li{padding:8px;border-radius:6px;background:#f1f5f9;margin-bottom:8px;font-size:14px}
+    #report-text{white-space:pre-wrap;background:#f8fafc;padding:10px;border-radius:6px;margin-top:8px}
+    .small{font-size:13px;color:#666}
+    .right-actions{display:flex;gap:8px;align-items:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="profile">
+        <div class="avatar" id="avatar">WS</div>
+        <div>
+          <div id="welcome-message" style="font-size:18px;font-weight:700">Welcome!</div>
+          <div class="small" id="user-email"></div>
+        </div>
+      </div>
+
+      <div class="right-actions">
+        <div style="text-align:right;margin-right:10px">
+          <div class="small">Balance (KES)</div>
+          <div class="balance" id="balance">0</div>
+        </div>
+        <button onclick="handleLogout()">Logout</button>
+        <button style="background:#ef4444" onclick="clearAllData()">Clear demo</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- LEFT: actions + chart -->
+      <div>
+        <div class="card">
+          <h3>Add Money In</h3>
+          <div class="input-row">
+            <input id="income-amount" type="number" placeholder="Amount (KES)" min="0" />
+            <button onclick="addIncome()">Add</button>
+          </div>
+          <div class="small">Add income to your available balance. You can later allocate into Zidi or Emergency.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Spend Money (Expenses)</h3>
+          <div class="input-row">
+            <input id="expense-amount" type="number" placeholder="Amount (KES)" min="0" />
+            <select id="expense-category">
+              <option value="bills">Bills</option>
+              <option value="food">Food</option>
+              <option value="transport">Transport</option>
+              <option value="others">Others</option>
+            </select>
+            <button onclick="addExpense()">Spend</button>
+          </div>
+          <div class="small">Record bills, food, transport etc — this reduces available balance.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Save (Zidi / Emergency / Investments)</h3>
+          <div class="input-row">
+            <input id="save-amount" type="number" placeholder="Amount (KES)" min="0" />
+            <select id="save-category">
+              <option value="zidi">Zidi (MMF)</option>
+              <option value="emergency">Emergency Fund</option>
+              <option value="investments">Investments</option>
+            </select>
+            <button onclick="addSave()">Save</button>
+          </div>
+          <div class="small">Move money into a savings goal — balance goes down, goal amount goes up.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Reports & Chart</h3>
+          <button onclick="generateReport()">Generate Report</button>
+          <button onclick="exportReport()" style="margin-left:8px;background:#0ea5e9">Export JSON</button>
+          <canvas id="savingsChart" style="max-width:100%;margin-top:12px"></canvas>
+          <div id="report-text"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: transaction history & quick stats -->
+      <aside>
+        <div class="card">
+          <h3>Transaction History</h3>
+          <ul id="history-list"></ul>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <button onclick="clearHistory()">Clear History</button>
+            <button onclick="renderChart()">Refresh Chart</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3>Quick Snapshot</h3>
+          <div class="small">Breakdown totals</div>
+          <div id="snapshot" style="margin-top:8px"></div>
+        </div>
+      </aside>
+    </div>
+
+    <footer style="margin-top:18px;color:#777">&copy; 2025 Wonder Savings</footer>
+  </div>
+
+  <script>
+    /********** Shared data helpers (localStorage model) **********/
+    const LS_USERS_KEY = 'ws_users';
+    const LS_CURR_KEY  = 'ws_currentUser';
+
+    function loadUsers(){ return JSON.parse(localStorage.getItem(LS_USERS_KEY) || '[]'); }
+    function saveUsers(u){ localStorage.setItem(LS_USERS_KEY, JSON.stringify(u)); }
+    function getCurrentUser(){ return localStorage.getItem(LS_CURR_KEY); }
+    function setCurrentUser(un){ if(!un) localStorage.removeItem(LS_CURR_KEY); else localStorage.setItem(LS_CURR_KEY, un); }
+    function getUser(username){ if(!username) return null; return loadUsers().find(u => u.username === username) || null; }
+    function updateUser(username, newUser){ const users = loadUsers(); const i = users.findIndex(x=>x.username===username); if(i===-1) return false; users[i] = newUser; saveUsers(users); return true; }
+
+    // default breakdown keys
+    const ORDER_KEYS = ['zidi','emergency','investments','bills','food','transport','others'];
+
+    // quick helper to format KES nicely
+    function fmt(n){ return Number(n||0).toLocaleString(); }
+
+    // transaction creation helper
+    function pushTransaction(user, tx){
+      // tx: { type:'income'|'expense'|'save', category, amount, note }
+      tx.id = Date.now() + '-' + Math.floor(Math.random()*1000);
+      tx.date = new Date().toISOString();
+      user.transactions = user.transactions || [];
+      user.transactions.unshift(tx);
+    }
+
+    // ====== On load: ensure someone is logged in ======
+    let current = getCurrentUser();
+    if(!current) {
+      // no user — send back to login
+      alert('Not signed in. Redirecting to login.');
+      window.location.href = 'index.html';
+    }
+
+    // load user object
+    let user = getUser(current);
+    if(!user){
+      // weird — user not found
+      alert('User data not found — returning to login.');
+      setCurrentUser(null);
+      window.location.href = 'index.html';
+    }
+
+    // ensure user structure has breakdown + transactions
+    user.breakdown = user.breakdown || { zidi:0, emergency:0, investments:0, bills:0, food:0, transport:0, others:0 };
+    user.transactions = user.transactions || [];
+    updateUser(user.username, user);
+
+    // ====== UI update functions ======
+    function showProfile(){
+      document.getElementById('welcome-message').textContent = `Welcome, ${user.name || user.username}`;
+      document.getElementById('user-email').textContent = user.email || '';
+      // avatar initials
+      const initials = (user.name || user.username).split(' ').map(s=>s[0]).slice(0,2).join('').toUpperCase();
+      document.getElementById('avatar').textContent = initials;
+      document.getElementById('balance').textContent = fmt(user.balance);
+    }
+
+    function renderHistory(){
+      const ul = document.getElementById('history-list');
+      ul.innerHTML = '';
+      if(!user.transactions || user.transactions.length === 0){ ul.innerHTML = '<li class="small">No transactions yet.</li>'; return; }
+      user.transactions.forEach(t => {
+        const li = document.createElement('li');
+        const dt = new Date(t.date);
+        const when = dt.toLocaleString();
+        li.innerHTML = `<strong>${t.type.toUpperCase()}</strong> • ${t.category} • KES ${fmt(t.amount)} <div class="small" style="margin-top:6px">${when}${t.note? ' — ' + t.note:''}</div>`;
+        ul.appendChild(li);
+      });
+    }
+
+    let chart = null;
+    function getReportData(){
+      const breakdown = user.breakdown || {};
+      const labels = ORDER_KEYS.map(k => k.charAt(0).toUpperCase() + k.slice(1));
+      const values = ORDER_KEYS.map(k => Number(breakdown[k] || 0));
+      // append Remaining Balance as last slice
+      labels.push('Remaining Balance');
+      values.push(Number(user.balance || 0));
+      return { labels, values };
+    }
+
+    function renderChart(){
+      const ctx = document.getElementById('savingsChart');
+      if(!ctx) return;
+      const rd = getReportData();
+      if(chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: rd.labels,
+          datasets: [{
+            data: rd.values,
+            // If you want colors you can add them here; Chart.js will also auto-color
+            backgroundColor: [
+              '#06b6d4','#f97316','#7c3aed','#ef4444','#f59e0b','#10b981','#60a5fa','#94a3b8'
+            ]
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+      renderSnapshot();
+    }
+
+    function renderSnapshot(){
+      const snap = document.getElementById('snapshot');
+      const breakdown = user.breakdown || {};
+      let html = '<table style="width:100%;font-size:14px">';
+      ORDER_KEYS.forEach(k=>{
+        html += `<tr><td style="width:1px;padding:4px 0">${k.charAt(0).toUpperCase()+k.slice(1)}</td><td style="text-align:right;padding:4px 0">KES ${fmt(breakdown[k]||0)}</td></tr>`;
+      });
+      html += `<tr><td style="padding-top:8px;font-weight:700">Remaining</td><td style="text-align:right;padding-top:8px;font-weight:700">KES ${fmt(user.balance||0)}</td></tr>`;
+      html += '</table>';
+      snap.innerHTML = html;
+    }
+
+    // ====== Actions: add income, expense, save ======
+    function saveStateAndRefresh(){
+      updateUser(user.username, user);
+      showProfile();
+      renderHistory();
+      renderChart();
+    }
+
+    function addIncome(){
+      const amt = Number(document.getElementById('income-amount').value || 0);
+      if(!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+      // income increases available balance; we do NOT auto-add to a breakdown category
+      user.balance = Number(user.balance || 0) + amt;
+      pushTransaction(user, { type:'income', category:'income', amount: amt, note:'' });
+      // update
+      document.getElementById('income-amount').value = '';
+      saveStateAndRefresh();
+    }
+
+    function addExpense(){
+      const amt = Number(document.getElementById('expense-amount').value || 0);
+      const cat = document.getElementById('expense-category').value;
+      if(!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+      if(amt > (user.balance || 0)){ alert('Not enough balance'); return; }
+      user.balance = Number(user.balance) - amt;
+      user.breakdown[cat] = Number(user.breakdown[cat] || 0) + amt;
+      pushTransaction(user, { type:'expense', category:cat, amount: amt, note: '' });
+      document.getElementById('expense-amount').value = '';
+      saveStateAndRefresh();
+    }
+
+    function addSave(){
+      const amt = Number(document.getElementById('save-amount').value || 0);
+      const cat = document.getElementById('save-category').value;
+      if(!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+      if(amt > (user.balance || 0)){ alert('Not enough balance'); return; }
+      user.balance = Number(user.balance) - amt;
+      user.breakdown[cat] = Number(user.breakdown[cat] || 0) + amt;
+      pushTransaction(user, { type:'save', category:cat, amount: amt, note: '' });
+      document.getElementById('save-amount').value = '';
+      saveStateAndRefresh();
+    }
+
+    // ====== Reports: generate textual + pie (pie auto-generated above) ======
+    function generateReport(){
+      const rd = getReportData();
+      // produce a simple textual summary with percentages
+      const total = rd.values.reduce((a,b)=>a+b, 0) || 1;
+      let txt = `Report for ${user.name || user.username}\nGenerated: ${new Date().toLocaleString()}\n\nBreakdown:\n`;
+      for(let i=0;i<rd.labels.length;i++){
+        const amt = rd.values[i];
+        const pct = ((amt / total) * 100).toFixed(1);
+        txt += `${rd.labels[i]}: KES ${fmt(amt)} (${pct}%)\n`;
+      }
+      document.getElementById('report-text').textContent = txt;
+      // ensure chart refreshed
+      renderChart();
+    }
+
+    // Export JSON report for teacher / demo
+    function exportReport(){
+      const payload = {
+        generatedAt: new Date().toISOString(),
+        user: {
+          username: user.username,
+          name: user.name,
+          email: user.email,
+          balance: user.balance,
+          breakdown: user.breakdown,
+          transactions: user.transactions.slice(0,200) // include history (limited)
+        }
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wonder_savings_report_${user.username}_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // clear history for this user (keeps user)
+    function clearHistory(){
+      if(!confirm('Clear transaction history for this account? This cannot be undone.')) return;
+      user.transactions = [];
+      // keep breakdown and balance as-is (we're only clearing history)
+      updateUser(user.username, user);
+      renderHistory();
+      alert('History cleared.');
+    }
+
+    // clear all demo data (all users) — developer helper
+    function clearAllData(){
+      if(confirm('Clear ALL demo data (all accounts) from this browser?')){
+        localStorage.removeItem(LS_USERS_KEY);
+        localStorage.removeItem(LS_CURR_KEY);
+        alert('All demo data cleared. Redirecting to login.');
+        window.location.href = 'index.html';
+      }
+    }
+
+    function handleLogout(){
+      setCurrentUser(null);
+      window.location.href = 'index.html';
+    }
+
+    // initial render
+    showProfile();
+    renderHistory();
+    renderChart();
+
+  </script>
+</body>
+</html>
